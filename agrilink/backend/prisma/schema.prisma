@@ -1,0 +1,451 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  FARMER
+  BUYER
+  TRANSPORTER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum BuyerStatus {
+  BUYING_NOW
+  ACTIVE
+  INACTIVE
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum PriceVerificationStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  REJECTED
+}
+
+enum PriceSource {
+  ADMIN_ENTRY
+  FIELD_COLLECTION
+  SMS
+  USSD
+  EXTERNAL_API
+  SEED_DEMO
+}
+
+enum DemandStatus {
+  OPEN
+  MATCHED
+  CLOSED
+  PAUSED
+}
+
+enum ShipmentStatus {
+  REQUESTED
+  CONFIRMED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum TransportRequestStatus {
+  REQUESTED
+  MATCHED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum TransactionStatus {
+  NEGOTIATING
+  AGREED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MarketType {
+  PRIMARY
+  RETAIL
+  WHOLESALE
+  ASSEMBLY
+  EXPORT
+}
+
+enum NotificationType {
+  PRICE_UPDATE
+  BUYER_MATCH
+  TRANSPORT_UPDATE
+  SHIPMENT_UPDATE
+  GENERAL
+  TRANSACTION
+  SYSTEM
+}
+
+enum Language {
+  EN
+  OM
+}
+
+model User {
+  id                Int        @id @default(autoincrement())
+  phone             String     @unique
+  passwordHash      String
+  role              Role       @default(FARMER)
+  status            UserStatus @default(ACTIVE)
+  preferredLanguage Language   @default(OM)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  farmerProfile      FarmerProfile?
+  buyerProfile       BuyerProfile?
+  transporterProfile TransporterProfile?
+  notifications      Notification[]
+}
+
+model FarmerProfile {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id])
+  name        String
+  phone       String
+  nationalId  String?
+  location    String?
+  latitude    Float?
+  longitude   Float?
+  cooperative String?
+  woreda      String?
+  kebele      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  farms             Farm[]
+  producePosts      FarmerProducePost[]
+  buyerDemands      BuyerDemand[]      @relation("DemandFarmer")
+  reviews           Review[]           @relation("FarmerReviews")
+  transportRequests TransportRequest[]
+  transactions      Transaction[]
+}
+
+model Farm {
+  id        Int           @id @default(autoincrement())
+  farmerId  Int
+  farmer    FarmerProfile @relation(fields: [farmerId], references: [id])
+  name      String
+  latitude  Float
+  longitude Float
+  landSize  Float?
+  woreda    String?
+  kebele    String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  crops FarmCrop[]
+}
+
+model Crop {
+  id        Int      @id @default(autoincrement())
+  name      String
+  nameOm    String
+  category  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  farmCrops         FarmCrop[]
+  priceObservations PriceObservation[]
+  buyerDemands      BuyerDemand[]
+  producePosts      FarmerProducePost[]
+  transactions      Transaction[]
+  transportRequests TransportRequest[]
+}
+
+model FarmCrop {
+  id            Int       @id @default(autoincrement())
+  farmId        Int
+  farm          Farm      @relation(fields: [farmId], references: [id])
+  cropId        Int
+  crop          Crop      @relation(fields: [cropId], references: [id])
+  area          Float?
+  expectedYield Float
+  harvestStart  DateTime?
+  harvestEnd    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model FarmerProducePost {
+  id            Int           @id @default(autoincrement())
+  farmerId      Int
+  farmer        FarmerProfile @relation(fields: [farmerId], references: [id], onDelete: Cascade)
+  cropId        Int
+  crop          Crop          @relation(fields: [cropId], references: [id])
+  title         String
+  description   String?       @db.Text
+  quantity      Float
+  unit          String        @default("kg")
+  pricePerUnit  Float?
+  imageUrl      String
+  isActive      Boolean       @default(true)
+  postedAt      DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([isActive, postedAt])
+  @@index([farmerId, isActive])
+}
+
+model Market {
+  id        Int        @id @default(autoincrement())
+  name      String
+  nameOm    String
+  city      String
+  woreda    String?
+  latitude  Float
+  longitude Float
+  type      MarketType @default(PRIMARY)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  priceObservations PriceObservation[]
+  transactions      Transaction[]
+  routeFees         RouteFee[]         @relation("FeeOrigin")
+  routeFeesTo       RouteFee[]         @relation("FeeDestination")
+}
+
+model PriceObservation {
+  id                 Int                     @id @default(autoincrement())
+  cropId             Int
+  crop               Crop                    @relation(fields: [cropId], references: [id])
+  marketId           Int
+  market             Market                  @relation(fields: [marketId], references: [id])
+  grade              String?
+  pricePerKg         Float
+  currency           String                  @default("ETB")
+  observationDate    DateTime
+  source             PriceSource             @default(ADMIN_ENTRY)
+  sourceDetail       String?
+  verificationStatus PriceVerificationStatus @default(PENDING)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([cropId, marketId, observationDate])
+  @@index([verificationStatus])
+}
+
+model BuyerProfile {
+  id                 Int                @id @default(autoincrement())
+  userId             Int                @unique
+  user               User               @relation(fields: [userId], references: [id])
+  businessName       String
+  contactPerson      String?
+  phone              String
+  location           String?
+  latitude           Float?
+  longitude          Float?
+  serviceArea        String?
+  isCollector        Boolean            @default(false)
+  fee                Float?
+  verificationStatus VerificationStatus @default(PENDING)
+  status             BuyerStatus        @default(ACTIVE)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  demands           BuyerDemand[]
+  reviews           Review[]           @relation("BuyerReviews")
+  transactions      Transaction[]
+  transportRequests TransportRequest[]
+}
+
+model BuyerDemand {
+  id           Int            @id @default(autoincrement())
+  buyerId      Int
+  buyer        BuyerProfile   @relation(fields: [buyerId], references: [id])
+  farmerId     Int?
+  farmer       FarmerProfile? @relation("DemandFarmer", fields: [farmerId], references: [id])
+  cropId       Int
+  crop         Crop           @relation(fields: [cropId], references: [id])
+  grade        String?
+  quantity     Float
+  unit         String         @default("kg")
+  offeredPrice Float
+  location     String?
+  status       DemandStatus   @default(OPEN)
+  postedAt     DateTime       @default(now())
+  expiresAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([cropId, status])
+}
+
+model TransporterProfile {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id])
+  name        String
+  phone       String
+  serviceArea String?
+  latitude    Float?
+  longitude   Float?
+  available   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vehicles          Vehicle[]
+  transportRequests TransportRequest[] @relation("TransporterRequests")
+}
+
+model Vehicle {
+  id            Int                @id @default(autoincrement())
+  transporterId Int
+  transporter   TransporterProfile @relation(fields: [transporterId], references: [id])
+  type          String
+  plateNumber   String
+  capacityKg    Float
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model TransportRequest {
+  id             Int                    @id @default(autoincrement())
+  farmerId       Int?
+  farmer         FarmerProfile?         @relation(fields: [farmerId], references: [id])
+  buyerId        Int?
+  buyer          BuyerProfile?          @relation(fields: [buyerId], references: [id])
+  transporterId  Int?
+  transporter    TransporterProfile?    @relation("TransporterRequests", fields: [transporterId], references: [id])
+  pickupLat      Float
+  pickupLng      Float
+  pickupLabel    String
+  destLat        Float
+  destLng        Float
+  destLabel      String
+  crop           Crop?                  @relation(fields: [cropId], references: [id])
+  cropId         Int?
+  quantity       Float
+  unit           String                 @default("kg")
+  preferredDate  DateTime?
+  vehicleType    String?
+  estimatedPrice Float?
+  status         TransportRequestStatus @default(REQUESTED)
+  distanceKm     Float?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  shipment Shipment?
+}
+
+model Shipment {
+  id                 Int              @id @default(autoincrement())
+  transportRequestId Int              @unique
+  transportRequest   TransportRequest @relation(fields: [transportRequestId], references: [id])
+  status             ShipmentStatus   @default(REQUESTED)
+  trackingRef        String           @unique
+  currentLat         Float?
+  currentLng         Float?
+  deliveredAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  transactions Transaction[]
+}
+
+model TransportRate {
+  id              Int      @id @default(autoincrement())
+  routeType       String
+  vehicleType     String
+  ratePerKmPerTon Float
+  effectiveDate   DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model RouteFee {
+  id             Int      @id @default(autoincrement())
+  originMarketId Int
+  originMarket   Market   @relation("FeeOrigin", fields: [originMarketId], references: [id])
+  destMarketId   Int
+  destMarket     Market   @relation("FeeDestination", fields: [destMarketId], references: [id])
+  fee            Float
+  createdById    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Transaction {
+  id            Int               @id @default(autoincrement())
+  farmerId      Int?
+  farmer        FarmerProfile?    @relation(fields: [farmerId], references: [id])
+  buyerId       Int?
+  buyer         BuyerProfile?     @relation(fields: [buyerId], references: [id])
+  marketId      Int?
+  market        Market?           @relation(fields: [marketId], references: [id])
+  cropId        Int?
+  crop          Crop?             @relation(fields: [cropId], references: [id])
+  quantity      Float
+  unit          String            @default("kg")
+  agreedPrice   Float
+  grossValue    Float
+  transportCost Float?
+  otherFees     Float             @default(0)
+  netValue      Float
+  shipmentId    Int?
+  shipment      Shipment?         @relation(fields: [shipmentId], references: [id])
+  status        TransactionStatus @default(NEGOTIATING)
+  createdAt     DateTime          @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime          @updatedAt
+}
+
+model Review {
+  id        Int           @id @default(autoincrement())
+  farmerId  Int
+  farmer    FarmerProfile @relation("FarmerReviews", fields: [farmerId], references: [id])
+  buyerId   Int
+  buyer     BuyerProfile  @relation("BuyerReviews", fields: [buyerId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime      @default(now())
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType @default(GENERAL)
+  title     String
+  titleOm   String?
+  body      String
+  bodyOm    String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  entity    String?
+  entityId  Int?
+  details   Json?
+  createdAt DateTime @default(now())
+}
